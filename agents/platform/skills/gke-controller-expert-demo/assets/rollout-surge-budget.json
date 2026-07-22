@@ -1,0 +1,154 @@
+{
+  "assessment_choices": [
+    "rollout_surge_budget_edit",
+    "rollout_surge_budget_hold",
+    "hpa_scale_down_window_edit",
+    "hpa_scale_down_window_hold",
+    "completed_job_retention_edit",
+    "completed_job_retention_hold",
+    "termination_grace_budget_edit",
+    "termination_grace_budget_hold"
+  ],
+  "case_id": "r1-opt-rollout_surge_budget-09",
+  "controller_policy": {
+    "action_type": "set_fields",
+    "allowed_changes": [
+      {
+        "path": "spec.strategy.rollingUpdate.maxSurge",
+        "value": "25%"
+      }
+    ],
+    "assessment": "rollout_surge_budget_edit",
+    "direct_cluster_mutation": false,
+    "path": "repos/teams/team-2/apps/fp-rollout-surge-budget-09/overlays/prod/deployment.yaml",
+    "required_evidence_ids": ["E1", "E2", "E3", "E4"]
+  },
+  "evidence": [
+    {
+      "id": "E1",
+      "text": "The production incident review for fp-rollout-surge-budget-09 isolates repository field spec.strategy.rollingUpdate.maxSurge; external owners and runtime capacity are healthy."
+    },
+    {
+      "id": "E2",
+      "text": "Repository path repos/teams/team-2/apps/fp-rollout-surge-budget-09/overlays/prod/deployment.yaml owns that field and currently records '100%'."
+    },
+    {
+      "id": "E3",
+      "text": "The approved product contract requires '25%'; change authority and the complete observation window are recorded."
+    },
+    {
+      "id": "E4",
+      "text": "All companion manifests are valid context and must remain byte-semantically unchanged."
+    },
+    {
+      "id": "D1",
+      "text": "A sandbox namespace rotated logs in window 39."
+    },
+    {
+      "id": "D2",
+      "text": "An unrelated team discussed changing its image registry mirror."
+    }
+  ],
+  "mode": "gitops_read_only",
+  "repository": {
+    "base_branch": "loop8-routing-demo-base-20260722",
+    "context_paths": [
+      "repos/teams/team-2/apps/fp-rollout-surge-budget-09/overlays/prod/deployment.yaml",
+      "repos/teams/team-2/apps/fp-rollout-surge-budget-09/overlays/prod/pdb.yaml",
+      "repos/teams/team-2/apps/fp-rollout-surge-budget-09/overlays/prod/service.yaml"
+    ],
+    "url": "https://github.com/erain/k8s-model-training.git"
+  },
+  "request": "Return one safe controller-owned GitOps decision for fp-rollout-surge-budget-09; preserve unrelated product resources.",
+  "response_schema": {
+    "additionalProperties": false,
+    "properties": {
+      "action": {
+        "oneOf": [
+          {
+            "additionalProperties": false,
+            "properties": {
+              "type": {
+                "const": "no_change"
+              }
+            },
+            "required": ["type"],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "changes": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "path": {
+                      "type": "string"
+                    },
+                    "value": {}
+                  },
+                  "required": ["path", "value"],
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "path": {
+                "type": "string"
+              },
+              "type": {
+                "const": "set_fields"
+              }
+            },
+            "required": ["type", "path", "changes"],
+            "type": "object"
+          },
+          {
+            "additionalProperties": false,
+            "properties": {
+              "files": {
+                "items": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "object": {
+                      "type": "object"
+                    },
+                    "path": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["path", "object"],
+                  "type": "object"
+                },
+                "minItems": 1,
+                "type": "array"
+              },
+              "type": {
+                "const": "write_files"
+              }
+            },
+            "required": ["type", "files"],
+            "type": "object"
+          }
+        ]
+      },
+      "assessment": {
+        "type": "string"
+      },
+      "evidence_ids": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "rationale": {
+        "type": "string"
+      }
+    },
+    "required": ["assessment", "evidence_ids", "action", "rationale"],
+    "type": "object"
+  },
+  "schema_version": 1,
+  "title": "Production repository decision for fp-rollout-surge-budget-09",
+  "workflow": "optimization"
+}

@@ -29,6 +29,14 @@ RUN apt-get update && apt-get install -y \
     wget \
     && rm -rf /var/lib/apt/lists/*
 
+# Install pinned kubeconform for deterministic GitOps manifest validation.
+RUN ARCH=$(dpkg --print-architecture) && \
+    curl -fsSL -o /tmp/kubeconform.tar.gz "https://github.com/yannh/kubeconform/releases/download/v0.8.0/kubeconform-linux-${ARCH}.tar.gz" && \
+    tar -xzf /tmp/kubeconform.tar.gz -C /usr/local/bin kubeconform && \
+    chmod 755 /usr/local/bin/kubeconform && \
+    rm /tmp/kubeconform.tar.gz && \
+    kubeconform -v
+
 # 2. Install google-cloud-cli and kubectl natively using the Google Cloud apt repository
 RUN curl -sSL https://packages.cloud.google.com/apt/doc/apt-key.gpg | gpg --yes --dearmor -o /usr/share/keyrings/cloud.google.gpg && \
     echo "deb [signed-by=/usr/share/keyrings/cloud.google.gpg] https://packages.cloud.google.com/apt cloud-sdk main" | tee -a /etc/apt/sources.list.d/google-cloud-sdk.list && \

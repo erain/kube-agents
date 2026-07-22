@@ -531,6 +531,32 @@ def send_notification(message: str, session_id: str = "") -> str:
         return f"ERROR: {e}"
 
 
+@mcp.tool()
+def run_loop8r_leadership_demo() -> str:
+    """Run the fixed read-only LOOP 8r expert-to-GitOps leadership demonstration.
+
+    This tool performs one live call to the private decision specialist, applies
+    only the pre-approved rollout surge field in a temporary Git checkout,
+    validates all manifests, and opens a draft PR. It never mutates a cluster.
+    """
+    script = "/opt/hermes/skills/gke-controller-expert-demo/scripts/run_demo.py"
+    try:
+        result = subprocess.run(
+            ["/opt/hermes/.venv/bin/python3", script],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=600,
+            env=_run_env(),
+        )
+        return result.stdout.strip()
+    except subprocess.TimeoutExpired:
+        return json.dumps({"status": "FAIL", "error": "demo timed out before completion"})
+    except subprocess.CalledProcessError as exc:
+        detail = (exc.stderr or exc.stdout or "demo subprocess failed").strip()[-2000:]
+        return json.dumps({"status": "FAIL", "error": detail})
+
+
 def start_session_kv_server() -> None:
     """Start the session metadata HTTP resolver when the MCP server starts."""
     try:

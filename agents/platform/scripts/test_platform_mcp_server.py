@@ -13,7 +13,7 @@ import platform_mcp_server
 # Override the env helper globally to return static values and avoid running kubectl get secret sub-commands
 platform_mcp_server._run_env = lambda extra=None: {"HOME": "/tmp", "SLACK_BOT_TOKEN": "dummy-token", **(extra or {})}
 
-from platform_mcp_server import verify_gke_cluster, list_cc_healthchecks, get_cc_operator_status, list_cc_pods, switch_kube_context, get_cc_pod_diagnostics, audit_log_searcher, send_notification
+from platform_mcp_server import verify_gke_cluster, list_cc_healthchecks, get_cc_operator_status, list_cc_pods, switch_kube_context, get_cc_pod_diagnostics, audit_log_searcher, send_notification, run_loop8r_leadership_demo
 
 class TestVerifyGkeCluster(unittest.TestCase):
 
@@ -533,6 +533,34 @@ class TestSendNotification(unittest.TestCase):
             ["hermes", "send", "--to", "google_chat", "hello warning"],
             capture_output=True, text=True, check=True, env={}
         )
+
+
+class TestLoop8rLeadershipDemo(unittest.TestCase):
+
+    @patch('platform_mcp_server.subprocess.run')
+    def test_demo_tool_returns_subprocess_result(self, mock_run):
+        mock_run.return_value = MagicMock(stdout='{"status":"PASS","pr_url":"https://example.invalid/pr/1"}')
+        result = json.loads(run_loop8r_leadership_demo())
+        self.assertEqual(result["status"], "PASS")
+        mock_run.assert_called_once_with(
+            [
+                "/opt/hermes/.venv/bin/python3",
+                "/opt/hermes/skills/gke-controller-expert-demo/scripts/run_demo.py",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=600,
+            env={"HOME": "/tmp", "SLACK_BOT_TOKEN": "dummy-token"},
+        )
+
+    @patch('platform_mcp_server.subprocess.run')
+    def test_demo_tool_does_not_retry_failure(self, mock_run):
+        mock_run.side_effect = subprocess.CalledProcessError(1, ["demo"], stderr="model trajectory failed")
+        result = json.loads(run_loop8r_leadership_demo())
+        self.assertEqual(result["status"], "FAIL")
+        self.assertIn("model trajectory failed", result["error"])
+        self.assertEqual(mock_run.call_count, 1)
 
 
 if __name__ == '__main__':
