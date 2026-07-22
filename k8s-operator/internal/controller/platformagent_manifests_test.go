@@ -80,6 +80,11 @@ func TestBuildConfigMap(t *testing.T) {
 	if !strings.Contains(yamlContent, "platform_toolsets:") {
 		t.Errorf("expected config to contain platform_toolsets, got:\n%s", yamlContent)
 	}
+	for _, envName := range []string{"GH_TOKEN", "EXPERT_BASE_URL", "EXPERT_MODEL", "EXPERT_ADAPTER_SHA256", "DEMO_GIT_REPO", "DEMO_BASE_BRANCH"} {
+		if !strings.Contains(yamlContent, envName+": ${"+envName+"}") {
+			t.Errorf("expected platform MCP config to pass through %s, got:\n%s", envName, yamlContent)
+		}
+	}
 	if !strings.Contains(yamlContent, "cron_mode: approve") {
 		t.Errorf("expected config to contain cron_mode: approve, got:\n%s", yamlContent)
 	}
