@@ -173,7 +173,8 @@ def validate_and_apply(case: dict[str, Any], response: dict[str, Any], repo: Pat
         raise ValueError("action differs from approved path/value contract")
 
     target = repo / policy["path"]
-    before = yaml.safe_load(target.read_text())
+    original_text = target.read_text()
+    before = yaml.safe_load(original_text)
     after = json.loads(json.dumps(before))
     for change in changes:
         set_path(after, change["path"], change["value"])
@@ -182,7 +183,17 @@ def validate_and_apply(case: dict[str, Any], response: dict[str, Any], repo: Pat
     allowed = sorted(change["path"] for change in changes)
     if changed != allowed:
         raise ValueError(f"semantic diff is not minimal: {changed}")
-    target.write_text(yaml.safe_dump(after, sort_keys=False))
+
+    # Preserve unrelated YAML bytes (including aliases/comments) for a leadership-
+    # readable one-line diff. This demo policy permits exactly one unique scalar.
+    change = changes[0]
+    scalar_key = change["path"].rsplit(".", 1)[-1]
+    pattern = re.compile(rf"^(\s*{re.escape(scalar_key)}:\s*).*$", re.MULTILINE)
+    replacement = rf"\g<1>{change['value']}"
+    patched_text, replacement_count = pattern.subn(replacement, original_text)
+    if replacement_count != 1 or yaml.safe_load(patched_text) != after:
+        raise ValueError("semantics-preserving scalar serialization failed")
+    target.write_text(patched_text)
 
     validation = []
     for relative in case["repository"]["context_paths"]:
