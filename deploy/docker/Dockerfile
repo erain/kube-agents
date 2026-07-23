@@ -164,6 +164,16 @@ RUN chown -R hermes:hermes /opt/defaults /opt/hermes/skills /opt/hermes/plugins 
     find /opt/hermes/skills -path '*/scripts/*' -type f -exec chmod 755 {} + 2>/dev/null || true
 
 
+# --- LOOP 8R LEADERSHIP DEMO TARGET ---
+# The normal Platform Agent ships autonomous governance and issue-resolution
+# schedules. The fixed GitOps demo must be request-driven only.
+FROM platform AS platform-loop8r-demo
+USER root
+RUN printf '{"jobs":[]}\n' > /opt/defaults/cron/jobs.json && \
+    chown hermes:hermes /opt/defaults/cron/jobs.json && \
+    chmod 644 /opt/defaults/cron/jobs.json
+
+
 # --- CREDENTIAL PROXY TARGET ---
 # This additive target packages Envoy with the credential runtime. Existing
 # platform images remain unchanged until the operator enables the sidecar.

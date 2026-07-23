@@ -138,49 +138,60 @@ func renderConfigYAML(agent *agentv1alpha1.PlatformAgent) string {
 	cfg.Terminal.Cwd = cwd
 
 	// MCP Servers & Toolsets configuration
-	cfg.MCPServers = map[string]any{
-		"platform_control": map[string]any{
-			"command":         "/opt/hermes/.venv/bin/python3",
-			"args":            []string{"/opt/data/scripts/platform_mcp_server.py"},
-			"connect_timeout": 120,
-			"timeout":         300,
-			"env": map[string]string{
-				"KUBERNETES_SERVICE_HOST":       "${KUBERNETES_SERVICE_HOST}",
-				"KUBERNETES_SERVICE_PORT":       "${KUBERNETES_SERVICE_PORT}",
-				"HERMES_HOME":                   "${HERMES_HOME}",
-				"GOOGLE_CHAT_PROJECT_ID":        "${GOOGLE_CHAT_PROJECT_ID}",
-				"GOOGLE_CHAT_SUBSCRIPTION_NAME": "${GOOGLE_CHAT_SUBSCRIPTION_NAME}",
-				"API_SERVER_KEY":                "${API_SERVER_KEY}",
-				"GH_TOKEN":                      "${GH_TOKEN}",
-				"EXPERT_BASE_URL":               "${EXPERT_BASE_URL}",
-				"EXPERT_MODEL":                  "${EXPERT_MODEL}",
-				"EXPERT_BASE_SNAPSHOT":          "${EXPERT_BASE_SNAPSHOT}",
-				"EXPERT_ADAPTER_SHA256":         "${EXPERT_ADAPTER_SHA256}",
-				"DEMO_GIT_REPO":                 "${DEMO_GIT_REPO}",
-				"DEMO_BASE_BRANCH":              "${DEMO_BASE_BRANCH}",
-				"DEMO_RESULTS_DIR":              "${DEMO_RESULTS_DIR}",
-			},
-		},
-		"agent_common": map[string]any{
-			"command": "/opt/hermes/.venv/bin/python3",
-			"args":    []string{"/opt/data/scripts/agent_common_server.py"},
-		},
-		"developer_knowledge": map[string]any{
-			"command": "node",
-			"args":    []string{"/opt/mcp-remote/dist/proxy.js", "https://developerknowledge.googleapis.com/mcp"},
-		},
-		"gke": map[string]any{
-			"command": "node",
-			"args":    []string{"/opt/mcp-remote/dist/proxy.js", "https://container.googleapis.com/mcp"},
+	platformControl := map[string]any{
+		"command":         "/opt/hermes/.venv/bin/python3",
+		"args":            []string{"/opt/data/scripts/platform_mcp_server.py"},
+		"connect_timeout": 120,
+		"timeout":         300,
+		"env": map[string]string{
+			"KUBERNETES_SERVICE_HOST":       "${KUBERNETES_SERVICE_HOST}",
+			"KUBERNETES_SERVICE_PORT":       "${KUBERNETES_SERVICE_PORT}",
+			"HERMES_HOME":                   "${HERMES_HOME}",
+			"GOOGLE_CHAT_PROJECT_ID":        "${GOOGLE_CHAT_PROJECT_ID}",
+			"GOOGLE_CHAT_SUBSCRIPTION_NAME": "${GOOGLE_CHAT_SUBSCRIPTION_NAME}",
+			"API_SERVER_KEY":                "${API_SERVER_KEY}",
+			"GH_TOKEN":                      "${GH_TOKEN}",
+			"EXPERT_BASE_URL":               "${EXPERT_BASE_URL}",
+			"EXPERT_MODEL":                  "${EXPERT_MODEL}",
+			"EXPERT_BASE_SNAPSHOT":          "${EXPERT_BASE_SNAPSHOT}",
+			"EXPERT_ADAPTER_SHA256":         "${EXPERT_ADAPTER_SHA256}",
+			"DEMO_GIT_REPO":                 "${DEMO_GIT_REPO}",
+			"DEMO_BASE_BRANCH":              "${DEMO_BASE_BRANCH}",
+			"DEMO_RESULTS_DIR":              "${DEMO_RESULTS_DIR}",
 		},
 	}
+	cfg.MCPServers = map[string]any{"platform_control": platformControl}
 	cfg.PlatformToolsets = map[string][]string{
-		"cli":        {"hermes-cli", "mcp-agent_common", "mcp-platform_control", "mcp-developer_knowledge", "mcp-gke"},
-		"api_server": {"hermes-api-server", "mcp-agent_common", "mcp-platform_control", "mcp-developer_knowledge", "mcp-gke"},
+		"cli":        {"hermes-cli", "mcp-platform_control"},
+		"api_server": {"hermes-api-server", "mcp-platform_control"},
 	}
 
-	// Execution & Display UX configuration
-	cfg.Approvals.CronMode = "approve"
+	isLeadershipDemo := agent.Labels["purpose"] == "loop8r-leadership-demo"
+	if !isLeadershipDemo {
+		cfg.MCPServers["agent_common"] = map[string]any{
+			"command": "/opt/hermes/.venv/bin/python3",
+			"args":    []string{"/opt/data/scripts/agent_common_server.py"},
+		}
+		cfg.MCPServers["developer_knowledge"] = map[string]any{
+			"command": "node",
+			"args":    []string{"/opt/mcp-remote/dist/proxy.js", "https://developerknowledge.googleapis.com/mcp"},
+		}
+		cfg.MCPServers["gke"] = map[string]any{
+			"command": "node",
+			"args":    []string{"/opt/mcp-remote/dist/proxy.js", "https://container.googleapis.com/mcp"},
+		}
+		cfg.PlatformToolsets = map[string][]string{
+			"cli":        {"hermes-cli", "mcp-agent_common", "mcp-platform_control", "mcp-developer_knowledge", "mcp-gke"},
+			"api_server": {"hermes-api-server", "mcp-agent_common", "mcp-platform_control", "mcp-developer_knowledge", "mcp-gke"},
+		}
+	}
+
+	// Execution & Display UX configuration. The fixed leadership demo has no
+	// autonomous schedules, so dangerous-command auto-approval is never enabled.
+	cfg.Approvals.CronMode = "ask"
+	if !isLeadershipDemo {
+		cfg.Approvals.CronMode = "approve"
+	}
 	cfg.Web.Backend = "ddgs"
 	// Enable incident_context plugin by default to parse and rewrite GChat/Slack threaded incident replies
 	cfg.Plugins.Enabled = []string{"hermes_otel", "session_store", "session_otel_bridge", "tool_call_audit", "incident_context"}

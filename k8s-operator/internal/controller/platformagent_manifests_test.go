@@ -93,6 +93,28 @@ func TestBuildConfigMap(t *testing.T) {
 	}
 }
 
+func TestBuildConfigMap_Loop8rDemoDisablesBroadMCPAndCronApproval(t *testing.T) {
+	agent := &agentv1alpha1.PlatformAgent{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      "platform-agent",
+			Namespace: "kubeagents-system",
+			Labels:    map[string]string{"purpose": "loop8r-leadership-demo"},
+		},
+	}
+
+	yamlContent := buildConfigMap(agent).Data["config.yaml"]
+	for _, required := range []string{"platform_control:", "mcp-platform_control", "cron_mode: ask"} {
+		if !strings.Contains(yamlContent, required) {
+			t.Errorf("expected demo config to contain %q, got:\n%s", required, yamlContent)
+		}
+	}
+	for _, forbidden := range []string{"agent_common:", "developer_knowledge:", "\n  gke:", "mcp-agent_common", "mcp-developer_knowledge", "mcp-gke", "cron_mode: approve"} {
+		if strings.Contains(yamlContent, forbidden) {
+			t.Errorf("expected demo config to omit %q, got:\n%s", forbidden, yamlContent)
+		}
+	}
+}
+
 func TestBuildConfigMap_MemoryConfig(t *testing.T) {
 	agent := &agentv1alpha1.PlatformAgent{
 		ObjectMeta: metav1.ObjectMeta{
