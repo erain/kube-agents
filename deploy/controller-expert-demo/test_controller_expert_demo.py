@@ -165,6 +165,14 @@ class FakeGitHub:
         return {"commit": "b" * 40, "pr_url": "https://github.com/example/gitops/pull/7", "pr_number": "7"}
 
 
+# Answers the preflight (-output json) with no errors and validates every file.
+KUBECONFORM_STUB = """#!/bin/sh
+case "$*" in *"-output json"*) echo '{"resources": []}'; exit 0;; esac
+echo 'Summary: 1 resource found - Valid: 1'
+exit 0
+"""
+
+
 def write_exe(path: Path, body: str) -> None:
     path.write_text(body)
     path.chmod(path.stat().st_mode | stat.S_IEXEC)
@@ -185,7 +193,7 @@ class ControllerTestBase(unittest.TestCase):
         bin_dir = root / "bin"
         bin_dir.mkdir()
         self.kubeconform = bin_dir / "kubeconform"
-        write_exe(self.kubeconform, "#!/bin/sh\necho 'Summary: 1 resource found - Valid: 1'\nexit 0\n")
+        write_exe(self.kubeconform, KUBECONFORM_STUB)
         self.kube_linter = bin_dir / "kube-linter"
         write_exe(self.kube_linter, '#!/bin/sh\necho \'{"Reports": []}\'\nexit 0\n')
         self.env = mock.patch.dict(os.environ, {
@@ -396,11 +404,26 @@ class RunTest(ControllerTestBase):
         self.assertEqual(expert.requests, [])
 
     def test_kubeconform_failure_blocks_the_pr(self):
-        write_exe(self.kubeconform, "#!/bin/sh\necho 'invalid'\nexit 1\n")
+        write_exe(self.kubeconform, KUBECONFORM_STUB.replace("echo 'Summary", "for f; do :; done; grep -q 'maxSurge: 25%' \"$f\" && { echo invalid; exit 1; }\necho 'Summary"))
         result, github = self.run_demo("opt-surge-01", ExpertStub(json.dumps(set_fields_response())))
         self.assertEqual(result["status"], "FAIL")
         self.assertIn("strict kubeconform failed", result["error"])
         self.assertEqual(github.opened, [])
+
+    def test_schema_fetch_error_refuses_before_inference(self):
+        write_exe(self.kubeconform, "#!/bin/sh\necho '{\"resources\": [{\"kind\": \"Deployment\", \"status\": \"statusError\", \"msg\": \"could not find schema\"}]}'\n")
+        expert = ExpertStub(json.dumps(set_fields_response()))
+        with self.assertRaisesRegex(demo.DemoRefused, "could not load schemas"):
+            self.run_demo("opt-surge-01", expert)
+        self.assertEqual(expert.requests, [])
+        self.assertEqual(self.ledger(), [])
+
+    def test_invalid_base_files_refuse_before_inference(self):
+        write_exe(self.kubeconform, KUBECONFORM_STUB.replace("echo 'Summary", "echo invalid; exit 1\necho 'Summary"))
+        expert = ExpertStub(json.dumps(set_fields_response()))
+        with self.assertRaisesRegex(demo.DemoRefused, "before any model call"):
+            self.run_demo("opt-surge-01", expert)
+        self.assertEqual(expert.requests, [])
 
     def test_kube_linter_no_new_findings_gate(self):
         self.write_config(kube_linter_gate="no_new_findings")

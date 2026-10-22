@@ -65,6 +65,70 @@ KUBE_LINTER_ENV = "CONTROLLER_EXPERT_DEMO_KUBE_LINTER"
 DEFAULT_KUBE_LINTER = "/usr/local/bin/kube-linter"
 
 LEDGER_NAME = "ledger.jsonl"
+# kubeconform downloads schemas over HTTPS; the cache on the PVC is filled by a
+# preflight BEFORE the expert call, so a schema-fetch failure refuses the run
+# instead of failing a scenario whose one expert call was already spent.
+KUBECONFORM_CACHE_NAME = "kubeconform-cache"
+KUBECONFORM_ERROR_STATUS = "statusError"
+# One minimal object per kind a GitOps change here plausibly touches, so their
+# schemas are cached before inference. Only fetch errors fail the preflight.
+PREFLIGHT_MANIFESTS = """\
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: preflight}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: preflight}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: preflight}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: preflight}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: preflight}
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata: {name: preflight}
+---
+apiVersion: v1
+kind: Namespace
+metadata: {name: preflight}
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: {name: preflight}
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata: {name: preflight}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata: {name: preflight}
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata: {name: preflight}
+---
+apiVersion: batch/v1
+kind: Job
+metadata: {name: preflight}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: preflight}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata: {name: preflight}
+"""
 LEDGER_LOCK_NAME = ".ledger.lock"
 RESULTS_DIR_NAME = "results"
 LOG_PREFIX = "[controller-expert-demo]"
@@ -573,17 +637,43 @@ def _run_tool(argv: list[str], workdir: Path) -> subprocess.CompletedProcess[str
     return subprocess.run(argv, cwd=workdir, text=True, capture_output=True, check=False, timeout=VALIDATOR_TIMEOUT_SECONDS)
 
 
+def _kubeconform_argv(kubernetes_version: str | None) -> list[str]:
+    cache = env_path(STATE_DIR_ENV, DEFAULT_STATE_DIR) / KUBECONFORM_CACHE_NAME
+    cache.mkdir(parents=True, exist_ok=True)
+    argv = [str(env_path(KUBECONFORM_ENV, DEFAULT_KUBECONFORM)), "-cache", str(cache)]
+    if kubernetes_version:
+        argv += ["-kubernetes-version", kubernetes_version]
+    return argv
+
+
+def kubeconform_preflight(files: dict[str, str], kubernetes_version: str | None) -> None:
+    """Fill the schema cache and validate the base files, before any model call."""
+    with tempfile.TemporaryDirectory(prefix="ced-kubeconform-preflight-") as temp:
+        root = Path(temp)
+        sample = root / "preflight.yaml"
+        sample.write_text(PREFLIGHT_MANIFESTS)
+        proc = _run_tool(_kubeconform_argv(kubernetes_version) + ["-output", "json", str(sample)], root)
+        try:
+            resources = json.loads(proc.stdout or "{}").get("resources") or []
+        except ValueError as exc:
+            raise DemoRefused(f"kubeconform preflight produced no JSON: {proc.stderr.strip()[-VALIDATOR_DETAIL_CHARS:]}") from exc
+        errors = [f"{r.get('kind')}: {r.get('msg')}" for r in resources if r.get("status") == KUBECONFORM_ERROR_STATUS]
+        if errors:
+            raise DemoRefused(f"kubeconform could not load schemas; refusing before inference: {errors[:3]}")
+    base = kubeconform(sorted(files), files, kubernetes_version)
+    invalid = [item["path"] for item in base if not item["pass"]]
+    if invalid:
+        raise DemoRefused(f"base-branch files fail strict kubeconform before any model call: {invalid}")
+
+
 def kubeconform(paths: list[str], files: dict[str, str], kubernetes_version: str | None) -> list[dict[str, Any]]:
-    binary = str(env_path(KUBECONFORM_ENV, DEFAULT_KUBECONFORM))
     results = []
     with tempfile.TemporaryDirectory(prefix="ced-kubeconform-") as temp:
         root = Path(temp)
         for path in paths:
             target = root / "f.yaml"
             target.write_text(files[path])
-            argv = [binary, "-strict", "-summary"]
-            if kubernetes_version:
-                argv += ["-kubernetes-version", kubernetes_version]
+            argv = _kubeconform_argv(kubernetes_version) + ["-strict", "-summary"]
             proc = _run_tool(argv + [str(target)], root)
             detail = (proc.stdout + proc.stderr).strip()[-VALIDATOR_DETAIL_CHARS:]
             results.append({"path": path, "pass": proc.returncode == 0, "detail": detail})
@@ -846,6 +936,7 @@ def run(
         if existing:
             raise DemoRefused(f"generation targets already exist on the base branch: {existing}")
     case = dict(case, current_files={path: current_files[path] for path in sorted(current_files) if path in context_paths})
+    kubeconform_preflight(case["current_files"], config.get("kubernetes_version"))
     messages = build_prompt_messages(case, controller_contract=route["controller_contract"])
 
     used = ledger.reserve(scenario_id, run_id, int(config["expert_call_budget"]))
