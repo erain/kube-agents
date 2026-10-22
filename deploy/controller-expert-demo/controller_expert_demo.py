@@ -20,6 +20,7 @@ from __future__ import annotations
 import base64
 import copy
 import datetime
+import difflib
 import fcntl
 import hashlib
 import json
@@ -145,6 +146,16 @@ REQUIRED_SCENARIO_KEYS = frozenset({
     "evidence", "allowed_changes", "response_schema",
 })
 KUBE_LINTER_GATES = frozenset({"report", "no_new_findings"})
+# How the validated change leaves the cluster. "api": the controller opens the
+# draft PR itself with the mounted repo-scoped token. "export": no GitHub
+# credential is used in the cluster; base files come from a frozen snapshot in
+# the ConfigMap, and the validated change is written to the volume as a
+# hash-pinned artifact that an operator-side script publishes, unmodified, as a
+# draft PR (demo/kube-agents-latest/publish_pr.sh in k8s-model-training).
+GITHUB_MODES = frozenset({"api", "export"})
+BASE_SNAPSHOT_NAME = "base_snapshot.json"
+EXPORTS_DIR_NAME = "exports"
+COMMIT_SHA_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 DEFAULT_MAX_TOKENS = 8192
 DEFAULT_REQUEST_TIMEOUT_SECONDS = 300
 GITHUB_TIMEOUT_SECONDS = 60
@@ -260,6 +271,17 @@ def load_demo_config(config_dir: Path | None = None) -> dict[str, Any]:
         raise DemoRefused("expert_call_budget must be a positive integer")
     if config.get("kube_linter_gate", "report") not in KUBE_LINTER_GATES:
         raise DemoRefused("kube_linter_gate must be report or no_new_findings")
+    mode = config.get("github_mode", "api")
+    if mode not in GITHUB_MODES:
+        raise DemoRefused("github_mode must be api or export")
+    config["github_mode"] = mode
+    if mode == "export":
+        snapshot_path = directory / BASE_SNAPSHOT_NAME
+        if not snapshot_path.is_file():
+            raise DemoRefused(f"github_mode export needs {BASE_SNAPSHOT_NAME} in the demo ConfigMap")
+        pinned_snapshot = config.get("base_snapshot_sha256")
+        if not pinned_snapshot or hashlib.sha256(snapshot_path.read_bytes()).hexdigest() != pinned_snapshot:
+            raise DemoRefused(f"{BASE_SNAPSHOT_NAME} does not match demo.json base_snapshot_sha256")
     scenarios_path = directory / SCENARIOS_NAME
     pack_sha = hashlib.sha256(scenarios_path.read_bytes()).hexdigest()
     pinned = config.get("scenario_pack_sha256")
@@ -856,6 +878,83 @@ class GitHub:
         return {"commit": commit["sha"], "pr_url": pull["html_url"], "pr_number": str(pull["number"])}
 
 
+class ExportRepo:
+    """The GitHub interface without a credential (github_mode "export").
+
+    Reads the base branch from the frozen, hash-pinned snapshot in the demo
+    ConfigMap, and turns "open a draft PR" into one immutable artifact on the
+    agent volume. The artifact carries the full content of every changed file,
+    their SHA-256s, a unified diff, and the exact commit message, title and
+    body; its own SHA-256 is logged and recorded in the result so the operator
+    script can prove it publishes exactly what the controller validated.
+    """
+
+    def __init__(self, config: dict[str, Any], state_dir: Path):
+        snapshot = json.loads((Path(config["_config_dir"]) / BASE_SNAPSHOT_NAME).read_text())
+        if snapshot.get("schema_version") != SCHEMA_VERSION:
+            raise DemoRefused(f"{BASE_SNAPSHOT_NAME} schema_version must be 1")
+        if snapshot.get("repository") != config["github_repository"] or snapshot.get("base_branch") != config["base_branch"]:
+            raise DemoRefused(f"{BASE_SNAPSHOT_NAME} names a different repository or base branch than demo.json")
+        if not COMMIT_SHA_PATTERN.fullmatch(str(snapshot.get("base_sha", ""))):
+            raise DemoRefused(f"{BASE_SNAPSHOT_NAME} base_sha must be a full commit SHA")
+        files = snapshot.get("files")
+        if not isinstance(files, dict) or not all(isinstance(k, str) and isinstance(v, str) for k, v in files.items()):
+            raise DemoRefused(f"{BASE_SNAPSHOT_NAME} files must map paths to text")
+        for path in files:
+            safe_repo_path(path)
+        self.repository = str(config["github_repository"])
+        self.base_branch = str(config["base_branch"])
+        self.base_sha = str(snapshot["base_sha"])
+        self.files = dict(files)
+        self.exports_dir = state_dir / EXPORTS_DIR_NAME
+
+    def base_commit(self, branch: str) -> str:
+        if branch != self.base_branch:
+            raise DemoRefused(f"the base snapshot is for {self.base_branch!r}, not {branch!r}")
+        return self.base_sha
+
+    def read_file(self, path: str, ref: str) -> str | None:
+        if ref != self.base_sha:
+            raise DemoRefused("the base snapshot cannot serve a different ref")
+        return self.files.get(path)
+
+    def open_draft_pr(self, *, base_branch: str, base_sha: str, branch: str, files: dict[str, str], message: str, title: str, body: str) -> dict[str, str]:
+        if base_branch != self.base_branch or base_sha != self.base_sha:
+            raise DemoFailed("export does not match the base snapshot")
+        diff = "".join(
+            "".join(difflib.unified_diff(
+                self.files.get(path, "").splitlines(keepends=True), files[path].splitlines(keepends=True),
+                fromfile=f"a/{path}" if path in self.files else "/dev/null", tofile=f"b/{path}",
+            ))
+            for path in sorted(files)
+        )
+        artifact = {
+            "schema_version": SCHEMA_VERSION,
+            "kind": "controller-expert-demo-pr-export",
+            "repository": self.repository,
+            "base_branch": base_branch,
+            "base_sha": base_sha,
+            "branch": branch,
+            "draft": True,
+            "commit_message": message,
+            "commit_author": {"name": COMMIT_AUTHOR_NAME, "email": COMMIT_AUTHOR_EMAIL},
+            "title": title,
+            "body": body,
+            "files": {path: files[path] for path in sorted(files)},
+            "files_sha256": {path: sha256_text(files[path]) for path in sorted(files)},
+            "unified_diff": diff,
+            "created_at": utc_now(),
+        }
+        data = (json.dumps(artifact, indent=2, sort_keys=True) + "\n").encode()
+        self.exports_dir.mkdir(parents=True, exist_ok=True)
+        target = self.exports_dir / (branch.replace("/", "__") + ".json")
+        with open(target, "xb") as handle:  # one artifact per branch; never overwritten
+            handle.write(data)
+        digest = hashlib.sha256(data).hexdigest()
+        log(f"pr_export_artifact branch={branch} sha256={digest} file={target}")
+        return {"outcome": "draft_pr_export", "export_file": str(target), "export_sha256": digest}
+
+
 def read_github_token() -> str:
     token = env_path(GITHUB_TOKEN_PATH_ENV, DEFAULT_GITHUB_TOKEN_PATH).read_text().strip()
     if not token:
@@ -880,6 +979,13 @@ def pr_body(result: dict[str, Any]) -> str:
         f"- kube-linter ({lint.get('gate', 'report')}): {sum(len(v) for v in lint.get('new_findings', {}).values())} new findings",
         f"- Expert-call budget: {result['budget_used']}/{result['budget']}",
         "- Direct cluster mutation: none (the controller has no Kubernetes write path)",
+    ]
+    if result.get("github_mode") == "export":
+        lines.append(
+            "- Publication: export mode. No GitHub credential is in the cluster; the controller wrote this "
+            "validated change as a hash-pinned artifact and an operator script published it unmodified."
+        )
+    lines += [
         "",
         "The fine-tuned/stock expert owned the assessment, evidence selection and structured action.",
         "Deterministic controller code owned routing, validation, the commit and this draft PR.",
@@ -919,7 +1025,12 @@ def run(
     state_dir = env_path(STATE_DIR_ENV, DEFAULT_STATE_DIR)
     ledger = Ledger(state_dir)
 
-    gh = github or GitHub(str(config["github_repository"]), read_github_token())
+    if github is not None:
+        gh = github
+    elif config["github_mode"] == "export":
+        gh = ExportRepo(config, state_dir)
+    else:
+        gh = GitHub(str(config["github_repository"]), read_github_token())
     base_sha = gh.base_commit(str(config["base_branch"]))
     context_paths = sorted(set(case.get("context_paths", [])) | set(case["allowed_changes"]))
     current_files: dict[str, str] = {}
@@ -951,6 +1062,7 @@ def run(
         "base_sha": base_sha,
         "budget_used": used,
         "budget": config["expert_call_budget"],
+        "github_mode": config["github_mode"],
         "expert_attempts": 1,
         "direct_cluster_mutation": False,
     }
@@ -1027,7 +1139,8 @@ def run(
         result.update(status="FAIL", stage="github", error=f"{type(exc).__name__}: {exc}")
         finish(ledger, state_dir, result)
         return result
-    result.update(status="PASS", outcome="draft_pr", branch=branch, **opened)
+    outcome = opened.pop("outcome", "draft_pr")
+    result.update(status="PASS", outcome=outcome, branch=branch, **opened)
     finish(ledger, state_dir, result)
     return result
 
@@ -1047,14 +1160,15 @@ def finish(ledger: Ledger, state_dir: Path, result: dict[str, Any]) -> None:
     log(
         f"scenario_finished scenario={result['scenario_id']} status={result['status']} "
         f"stage={result.get('stage', 'done')} budget={result['budget_used']}/{result['budget']} "
-        f"pr={result.get('pr_url', '-')}"
+        f"pr={result.get('pr_url', '-')} export_sha256={result.get('export_sha256', '-')}"
     )
 
 
 def summary(result: dict[str, Any]) -> dict[str, Any]:
     keys = (
         "status", "outcome", "stage", "error", "scenario_id", "workflow", "route", "assessment",
-        "evidence_ids", "action_type", "checks", "pr_url", "commit", "branch", "budget_used", "budget",
+        "evidence_ids", "action_type", "checks", "pr_url", "commit", "branch", "export_file", "export_sha256",
+        "github_mode", "budget_used", "budget",
         "expert_latency_seconds", "usage", "direct_cluster_mutation", "run_id",
     )
     return {key: result[key] for key in keys if key in result}

@@ -478,3 +478,91 @@ class ConfigValidationTest(ControllerTestBase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ExportModeTest(ControllerTestBase):
+    """github_mode "export": no credential, frozen base snapshot, hash-pinned artifact."""
+
+    BASE_SHA = "c" * 40
+
+    def write_export_config(self, snapshot=None, **overrides):
+        snapshot = snapshot if snapshot is not None else {
+            "schema_version": 1,
+            "repository": "example/gitops",
+            "base_branch": "main",
+            "base_sha": self.BASE_SHA,
+            "files": {DEPLOY_PATH: DEPLOYMENT, SERVICE_PATH: SERVICE},
+        }
+        data = json.dumps(snapshot, sort_keys=True).encode()
+        (self.config_dir / "base_snapshot.json").write_bytes(data)
+        settings = {"github_mode": "export", "base_snapshot_sha256": hashlib.sha256(data).hexdigest()}
+        settings.update(overrides)
+        self.write_config(**settings)
+
+    def test_export_writes_one_artifact_and_reads_no_credential(self):
+        self.write_export_config()
+        expert = ExpertStub(json.dumps(set_fields_response()))
+        with mock.patch.object(demo, "read_github_token", side_effect=AssertionError("token read")), \
+                mock.patch.object(demo.GitHub, "request", side_effect=AssertionError("GitHub API call")):
+            result = demo.run("opt-surge-01", expert_urlopen=expert)
+        self.assertEqual(result["status"], "PASS", result)
+        self.assertEqual(result["outcome"], "draft_pr_export")
+        self.assertEqual(result["github_mode"], "export")
+        self.assertEqual(result["base_sha"], self.BASE_SHA)
+        self.assertEqual(len(expert.requests), 1)
+        artifact_path = Path(result["export_file"])
+        data = artifact_path.read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(), result["export_sha256"])
+        artifact = json.loads(data)
+        self.assertEqual(artifact["repository"], "example/gitops")
+        self.assertEqual(artifact["base_sha"], self.BASE_SHA)
+        self.assertEqual(artifact["branch"], result["branch"])
+        self.assertTrue(artifact["draft"])
+        self.assertEqual(list(artifact["files"]), [DEPLOY_PATH])
+        self.assertEqual(artifact["files_sha256"][DEPLOY_PATH], hashlib.sha256(artifact["files"][DEPLOY_PATH].encode()).hexdigest())
+        self.assertIn("+      maxSurge: 25%  # owned by the platform team", artifact["unified_diff"])
+        self.assertIn("Publication: export mode", artifact["body"])
+        self.assertIn("Expert-call budget: 1/2", artifact["body"])
+        log_text = Path(os.environ[demo.LOG_PATH_ENV]).read_text()
+        self.assertIn(f"pr_export_artifact branch={result['branch']} sha256={result['export_sha256']}", log_text)
+        self.assertIn(f"export_sha256={result['export_sha256']}", log_text)
+        self.assertEqual(demo.summary(result)["export_sha256"], result["export_sha256"])
+
+    def test_snapshot_digest_mismatch_is_refused_before_inference(self):
+        self.write_export_config(base_snapshot_sha256="0" * 64)
+        expert = ExpertStub(json.dumps(set_fields_response()))
+        with self.assertRaises(demo.DemoRefused):
+            demo.run("opt-surge-01", expert_urlopen=expert)
+        self.assertEqual(expert.requests, [])
+        self.assertEqual(self.ledger(), [])
+
+    def test_missing_snapshot_is_refused(self):
+        self.write_config(github_mode="export", base_snapshot_sha256="0" * 64)
+        with self.assertRaises(demo.DemoRefused):
+            demo.load_demo_config()
+
+    def test_snapshot_drift_against_frozen_files_is_refused_before_inference(self):
+        self.write_export_config(snapshot={
+            "schema_version": 1, "repository": "example/gitops", "base_branch": "main", "base_sha": self.BASE_SHA,
+            "files": {DEPLOY_PATH: DEPLOYMENT.replace("replicas: 4", "replicas: 5"), SERVICE_PATH: SERVICE},
+        })
+        expert = ExpertStub(json.dumps(set_fields_response()))
+        with self.assertRaises(demo.DemoRefused):
+            demo.run("opt-surge-01", expert_urlopen=expert)
+        self.assertEqual(expert.requests, [])
+
+    def test_snapshot_for_another_repository_is_refused(self):
+        self.write_export_config(snapshot={
+            "schema_version": 1, "repository": "someone/else", "base_branch": "main", "base_sha": self.BASE_SHA,
+            "files": {DEPLOY_PATH: DEPLOYMENT, SERVICE_PATH: SERVICE},
+        })
+        with self.assertRaises(demo.DemoRefused):
+            demo.run("opt-surge-01", expert_urlopen=ExpertStub(json.dumps(set_fields_response())))
+
+    def test_unknown_github_mode_is_refused(self):
+        self.write_config(github_mode="push")
+        with self.assertRaises(demo.DemoRefused):
+            demo.load_demo_config()
+
+    def test_api_mode_is_the_default(self):
+        self.assertEqual(demo.load_demo_config()["github_mode"], "api")
