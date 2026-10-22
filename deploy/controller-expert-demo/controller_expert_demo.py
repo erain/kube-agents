@@ -587,6 +587,69 @@ def _scalar_text(value: Any) -> str | None:
     return rendered if "\n" not in rendered else None
 
 
+_YAML_LINE = re.compile(r"^(?P<indent> *)(?P<dash>- +)?(?P<key>[A-Za-z0-9_.\-/]+):(?:[ \t]|$)")
+
+
+def _key_column(line: str) -> tuple[int, int | None, str | None]:
+    """(key column, dash column or None, key or None) of one block-style YAML line."""
+    match = _YAML_LINE.match(line)
+    if not match:
+        stripped = line.lstrip(" ")
+        indent = len(line) - len(stripped)
+        if stripped.startswith("- "):
+            return indent + 2, indent, None
+        return indent, None, None
+    indent = len(match.group("indent"))
+    dash = match.group("dash")
+    return indent + (len(dash) if dash else 0), (indent if dash else None), match.group("key")
+
+
+def _significant(line: str) -> bool:
+    stripped = line.strip()
+    return bool(stripped) and not stripped.startswith("#")
+
+
+def _path_line(lines: list[str], path: str) -> int | None:
+    """Index of the one line holding the scalar at dotted `path`, by walking blocks.
+
+    Used only when the changed key name is not unique in the file (for example a
+    livenessProbe port beside a readinessProbe port). Any doubt returns None, and
+    surgical_patch's final parse-equality check guards every result.
+    """
+    start, end, parent = 0, len(lines), -1
+    tokens = path.split(".")
+    for offset, token in enumerate(tokens):
+        match = PATH_PART.fullmatch(token)
+        if match is None:
+            return None
+        key, index = match.group(1), match.group(2)
+        block = [i for i in range(start, end) if _significant(lines[i]) and _key_column(lines[i])[0] > parent]
+        if not block:
+            return None
+        child = min(_key_column(lines[i])[0] for i in block)
+        hits = [i for i in block if _key_column(lines[i])[0] == child and _key_column(lines[i])[2] == key]
+        if len(hits) != 1:
+            return None
+        found = hits[0]
+        column = _key_column(lines[found])[0]
+        stop = next((j for j in range(found + 1, end) if _significant(lines[j]) and _key_column(lines[j])[0] <= column), end)
+        if offset == len(tokens) - 1:
+            return found if index is None else None
+        start, end, parent = found + 1, stop, column
+        if index is not None:
+            items = [i for i in range(start, end) if _significant(lines[i]) and _key_column(lines[i])[1] is not None]
+            if not items:
+                return None
+            dash = min(_key_column(lines[i])[1] for i in items)
+            items = [i for i in items if _key_column(lines[i])[1] == dash]
+            if int(index) >= len(items):
+                return None
+            item = items[int(index)]
+            following = [i for i in items if i > item]
+            start, end, parent = item, (following[0] if following else end), dash
+    return None
+
+
 def surgical_patch(original: str, changes: list[dict[str, Any]], expected: Any) -> str | None:
     """Rewrite only the changed scalar lines when that is provably equivalent.
 
@@ -604,7 +667,18 @@ def surgical_patch(original: str, changes: list[dict[str, Any]], expected: Any) 
             return None
         pattern = re.compile(rf"^(\s*{re.escape(key)}:[ \t]*)[^\n#]*?([ \t]*(#.*)?)$", re.MULTILINE)
         if len(pattern.findall(text)) != 1:
-            return None
+            # The key name repeats: locate its line by walking the dotted path.
+            lines = text.splitlines(keepends=True)
+            index = _path_line(lines, change["path"])
+            if index is None:
+                return None
+            line_pattern = re.compile(rf"^(\s*(?:- +)?{re.escape(key)}:[ \t]*)[^\n#]*?([ \t]*(#.*)?)$")
+            body, newline = (lines[index][:-1], "\n") if lines[index].endswith("\n") else (lines[index], "")
+            if not line_pattern.fullmatch(body):
+                return None
+            lines[index] = line_pattern.sub(lambda match, text=rendered: f"{match.group(1)}{text}{match.group(2)}", body) + newline
+            text = "".join(lines)
+            continue
         text = pattern.sub(lambda match: f"{match.group(1)}{rendered}{match.group(2)}", text)
     try:
         if yaml.safe_load(text) != expected:

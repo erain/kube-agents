@@ -435,6 +435,68 @@ class RunTest(ControllerTestBase):
         self.assertEqual(github.opened, [])
 
 
+class SurgicalPatchTest(unittest.TestCase):
+    """A repeated key name is patched by walking the dotted path, never guessed."""
+
+    PROBES = """apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: api
+spec:
+  template:
+    spec:
+      containers:
+        - name: app
+          image: example/app:1
+          args: ["serve", "--port=8080"]
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: http
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090  # moved
+            periodSeconds: 20
+        - name: sidecar
+          image: example/sidecar:1
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9090
+"""
+
+    def patch(self, path, value):
+        after = yaml.safe_load(self.PROBES)
+        demo._set_path(after, path, value)
+        return demo.surgical_patch(self.PROBES, [{"path": path, "value": value}], after), after
+
+    def changed_lines(self, text):
+        return [(a, b) for a, b in zip(self.PROBES.splitlines(), text.splitlines()) if a != b]
+
+    def test_repeated_key_is_patched_on_exactly_one_line(self):
+        text, after = self.patch("spec.template.spec.containers[0].livenessProbe.httpGet.port", "http")
+        self.assertIsNotNone(text)
+        self.assertEqual(yaml.safe_load(text), after)
+        self.assertEqual(self.changed_lines(text), [("              port: 9090  # moved", "              port: http  # moved")])
+
+    def test_list_index_selects_the_right_container(self):
+        text, after = self.patch("spec.template.spec.containers[1].livenessProbe.httpGet.port", 8080)
+        self.assertEqual(yaml.safe_load(text), after)
+        self.assertEqual(self.changed_lines(text), [("              port: 9090", "              port: 8080")])
+        text, _ = self.patch("spec.template.spec.containers[1].image", "example/sidecar:2")
+        self.assertEqual(self.changed_lines(text), [("          image: example/sidecar:1", "          image: example/sidecar:2")])
+
+    def test_unresolvable_path_falls_back_to_full_serialization(self):
+        after = yaml.safe_load(self.PROBES)
+        changes = [{"path": "spec.template.spec.containers[2].livenessProbe.httpGet.port", "value": 1}]
+        self.assertIsNone(demo.surgical_patch(self.PROBES, changes, after))
+
+    def test_unique_key_behaviour_is_unchanged(self):
+        text, _ = self.patch("spec.template.spec.containers[0].livenessProbe.periodSeconds", 30)
+        self.assertEqual(self.changed_lines(text), [("            periodSeconds: 20", "            periodSeconds: 30")])
+
+
 class GitHubClientTest(unittest.TestCase):
     def test_draft_pr_sequence(self):
         calls = []
