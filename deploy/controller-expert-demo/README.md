@@ -35,6 +35,13 @@ chat / Kube Agents Console / API
   key is refused so the gate oracle stays out of the cluster).
 - Secret `controller-expert-demo-github`, key `token`: a credential that can push a
   branch and open a draft PR on the GitOps repository only.
+- Export mode (`"github_mode": "export"` in `demo.json`): no GitHub credential in the
+  cluster. The ConfigMap also carries `base_snapshot.json` (`repository`, `base_branch`,
+  full `base_sha`, `files`), pinned by `demo.json` `base_snapshot_sha256`. The controller
+  reads base files from it and writes the validated change to
+  `/opt/data/controller-expert-demo/exports/<branch>.json`, logging its SHA-256; an
+  operator-side script publishes that artifact unmodified as a draft PR. The Secret
+  still has to exist for the mount and holds a non-credential placeholder.
 
 ## Build, render, test
 
