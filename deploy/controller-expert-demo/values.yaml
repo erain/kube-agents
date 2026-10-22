@@ -18,8 +18,8 @@
 operator:
   image:
     repository: us-central1-docker.pkg.dev/yiyu-gke-dev/kube-agents/k8s-operator
-    # Built by cloudbuild.yaml from fork commit 42487c6 (VERSION=0.16.0).
-    tag: "expert-demo-0.16.0-42487c6@sha256:47175e8cc837a548b8d69297f47aadd18840d5cf6b0820d9e6ddcbff81d54a7b"
+    # Built by cloudbuild.yaml from fork commit ad5c6f7 (VERSION=0.16.0).
+    tag: "expert-demo-0.16.0-ad5c6f7@sha256:fb55bccccf769df4b46704d794c8d35dca9ce5821ecbed8a515e69ea239a26bf"
   extraEnv:
     # The operator derives the broker image from the agent image's repository;
     # the demo agent image lives in Artifact Registry, so name the released
@@ -46,8 +46,8 @@ platformAgent:
   deployment:
     image:
       repository: us-central1-docker.pkg.dev/yiyu-gke-dev/kube-agents/platform-agent
-      # Overlay on platform-agent:0.16.0@sha256:1194c591..., built from fork commit 42487c6.
-      tag: "expert-demo-0.16.0-42487c6@sha256:87cbaf601e6a92d9b9647f7f3231c5bf5f01133fd78a07ad766b1fcd072b62ea"
+      # Overlay on platform-agent:0.16.0@sha256:1194c591..., built from fork commit ad5c6f7.
+      tag: "expert-demo-0.16.0-ad5c6f7@sha256:ce2657b3ddb1c01ee65a64adead9661eaa39dc969605ce49d5c52c0a0731dd7b"
       pullPolicy: Always
     availability:
       replicas: 1
