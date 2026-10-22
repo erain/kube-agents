@@ -1,0 +1,84 @@
+{
+  "case": {
+    "allowed_changes": {
+      "apps/demo/deployment.yaml": [
+        "spec.strategy.rollingUpdate.maxSurge"
+      ],
+      "apps/demo/service.yaml": []
+    },
+    "assessment_choices": [
+      "edit",
+      "hold"
+    ],
+    "current_files": {
+      "apps/demo/deployment.yaml": "apiVersion: apps/v1\nkind: Deployment\n",
+      "apps/demo/service.yaml": "apiVersion: v1\nkind: Service\n"
+    },
+    "evidence": [
+      {
+        "id": "E1",
+        "text": "Synthetic evidence."
+      },
+      {
+        "id": "D1",
+        "text": "Synthetic distractor."
+      }
+    ],
+    "id": "synthetic-opt-surge-01",
+    "mode": "gitops_read_only",
+    "request": "Synthetic request used only to pin the prompt format.",
+    "response_schema": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "type": "object"
+        },
+        "assessment": {
+          "type": "string"
+        },
+        "evidence_ids": {
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "rationale": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "assessment",
+        "evidence_ids",
+        "action",
+        "rationale"
+      ],
+      "type": "object"
+    },
+    "title": "Synthetic rollout budget",
+    "version": "synthetic-golden-v1",
+    "workflow": "optimization"
+  },
+  "messages": {
+    "loop8-v1": [
+      {
+        "content": "You are the GKE expert decision component inside kube-agents. Diagnose from supplied evidence and return a safe structured GitOps action. The controller performs all workflow mechanics and validation.",
+        "role": "system"
+      },
+      {
+        "content": "{\n  \"case\": {\n    \"allowed_action_paths\": [\n      \"apps/demo/deployment.yaml\",\n      \"apps/demo/service.yaml\"\n    ],\n    \"assessment_choices\": [\n      \"edit\",\n      \"hold\"\n    ],\n    \"current_files\": {\n      \"apps/demo/deployment.yaml\": \"apiVersion: apps/v1\\nkind: Deployment\\n\",\n      \"apps/demo/service.yaml\": \"apiVersion: v1\\nkind: Service\\n\"\n    },\n    \"evidence\": [\n      {\n        \"id\": \"E1\",\n        \"text\": \"Synthetic evidence.\"\n      },\n      {\n        \"id\": \"D1\",\n        \"text\": \"Synthetic distractor.\"\n      }\n    ],\n    \"id\": \"synthetic-opt-surge-01\",\n    \"request\": \"Synthetic request used only to pin the prompt format.\",\n    \"title\": \"Synthetic rollout budget\",\n    \"workflow\": \"optimization\"\n  },\n  \"constraints\": [\n    \"Return one JSON object only; no markdown.\",\n    \"Use only evidence IDs that directly support the assessment.\",\n    \"Do not emit shell, kubectl, git, gh, or gcloud commands.\",\n    \"The controller owns file editing, validation, branch, commit, push, and PR mechanics.\",\n    \"For an existing manifest, use set_fields and change only required dotted YAML paths.\",\n    \"For a new workload bundle, use write_files with complete Kubernetes YAML files.\",\n    \"When evidence does not justify a repository edit, use no_change with no path, changes, or files.\",\n    \"Preserve unrelated fields and never directly mutate the cluster.\",\n    \"Path contract: allowed_action_paths is the exact repository path allowlist, not an example or directory hint.\",\n    \"For write_files, emit exactly one files entry for every allowed_action_path, use each exact path once, and emit no other path.\",\n    \"For set_fields, action.path must exactly equal one allowed_action_path; do not rewrite or shorten it.\",\n    \"Each write_files object must be a complete Kubernetes JSON object whose metadata.name and metadata.namespace match the requested resource identity.\"\n  ],\n  \"operating_mode\": \"gitops_read_only\",\n  \"response_schema\": {\n    \"additionalProperties\": false,\n    \"properties\": {\n      \"action\": {\n        \"type\": \"object\"\n      },\n      \"assessment\": {\n        \"type\": \"string\"\n      },\n      \"evidence_ids\": {\n        \"items\": {\n          \"type\": \"string\"\n        },\n        \"type\": \"array\"\n      },\n      \"rationale\": {\n        \"type\": \"string\"\n      }\n    },\n    \"required\": [\n      \"assessment\",\n      \"evidence_ids\",\n      \"action\",\n      \"rationale\"\n    ],\n    \"type\": \"object\"\n  },\n  \"task\": \"Return the GKE expert decision for this kube-agents case.\"\n}",
+        "role": "user"
+      }
+    ],
+    "v1": [
+      {
+        "content": "You are the GKE expert decision component inside kube-agents. Diagnose from supplied evidence and return a safe structured GitOps action. The controller performs all workflow mechanics and validation.",
+        "role": "system"
+      },
+      {
+        "content": "{\n  \"case\": {\n    \"allowed_action_paths\": [\n      \"apps/demo/deployment.yaml\",\n      \"apps/demo/service.yaml\"\n    ],\n    \"assessment_choices\": [\n      \"edit\",\n      \"hold\"\n    ],\n    \"current_files\": {\n      \"apps/demo/deployment.yaml\": \"apiVersion: apps/v1\\nkind: Deployment\\n\",\n      \"apps/demo/service.yaml\": \"apiVersion: v1\\nkind: Service\\n\"\n    },\n    \"evidence\": [\n      {\n        \"id\": \"E1\",\n        \"text\": \"Synthetic evidence.\"\n      },\n      {\n        \"id\": \"D1\",\n        \"text\": \"Synthetic distractor.\"\n      }\n    ],\n    \"id\": \"synthetic-opt-surge-01\",\n    \"request\": \"Synthetic request used only to pin the prompt format.\",\n    \"title\": \"Synthetic rollout budget\",\n    \"workflow\": \"optimization\"\n  },\n  \"constraints\": [\n    \"Return one JSON object only; no markdown.\",\n    \"Use only evidence IDs that directly support the assessment.\",\n    \"Do not emit shell, kubectl, git, gh, or gcloud commands.\",\n    \"The controller owns file editing, validation, branch, commit, push, and PR mechanics.\",\n    \"For an existing manifest, use set_fields and change only required dotted YAML paths.\",\n    \"For a new workload bundle, use write_files with complete Kubernetes YAML files.\",\n    \"When evidence does not justify a repository edit, use no_change with no path, changes, or files.\",\n    \"Preserve unrelated fields and never directly mutate the cluster.\"\n  ],\n  \"operating_mode\": \"gitops_read_only\",\n  \"response_schema\": {\n    \"additionalProperties\": false,\n    \"properties\": {\n      \"action\": {\n        \"type\": \"object\"\n      },\n      \"assessment\": {\n        \"type\": \"string\"\n      },\n      \"evidence_ids\": {\n        \"items\": {\n          \"type\": \"string\"\n        },\n        \"type\": \"array\"\n      },\n      \"rationale\": {\n        \"type\": \"string\"\n      }\n    },\n    \"required\": [\n      \"assessment\",\n      \"evidence_ids\",\n      \"action\",\n      \"rationale\"\n    ],\n    \"type\": \"object\"\n  },\n  \"task\": \"Return the GKE expert decision for this kube-agents case.\"\n}",
+        "role": "user"
+      }
+    ]
+  },
+  "source": "k8s-model-training eval/run_leadership_eval.py build_prompt_messages @ 6dc2d5fbd2ce22acff340474af1bbc163a16c5e6"
+}

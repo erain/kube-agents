@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "name": "gke-controller-expert-loop8r",
+  "mode": "gitops_read_only",
+  "routing_key": "controller_workflow",
+  "routes": {
+    "troubleshooting": {
+      "model": "loop8-routing-comparison",
+      "model_role": "fine_tuned_decision_specialist",
+      "base_snapshot": "0f03bc8c5a5d620f219daea1ef93e05775ae9b74",
+      "adapter_sha256": "66d6b486b21181f9d697d637ba3c3a07cd8b2d640ce416de2037874c1f99db8b",
+      "controller_contract": "loop8-v1",
+      "response_format": "json_schema"
+    },
+    "optimization": {
+      "model": "loop8-routing-comparison",
+      "model_role": "fine_tuned_decision_specialist",
+      "base_snapshot": "0f03bc8c5a5d620f219daea1ef93e05775ae9b74",
+      "adapter_sha256": "66d6b486b21181f9d697d637ba3c3a07cd8b2d640ce416de2037874c1f99db8b",
+      "controller_contract": "loop8-v1",
+      "response_format": "json_schema"
+    },
+    "generation": {
+      "model": "loop8-routing-stock",
+      "model_role": "stock_generation_fallback",
+      "base_snapshot": "0f03bc8c5a5d620f219daea1ef93e05775ae9b74",
+      "adapter_sha256": null,
+      "controller_contract": "v1",
+      "response_format": "json_object"
+    }
+  },
+  "unknown_workflow_policy": "reject",
+  "controller_owns": [
+    "workflow_identity",
+    "evidence_collection",
+    "policy",
+    "allowed_paths",
+    "normalization",
+    "executable_validation",
+    "file_application",
+    "git",
+    "github"
+  ],
+  "direct_cluster_mutation": false,
+  "promotion_evidence": "eval/results/gke-ops-12b-controller-loop8-routing-20260722T150332Z/ARTIFACT.json"
+}

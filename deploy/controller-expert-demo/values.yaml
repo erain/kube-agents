@@ -1,0 +1,64 @@
+# Helm values for the request-driven controller-expert demo on the upstream
+# kube-agents 0.16.0 chart (charts/kube-agents). Pass with -f, after any site
+# values, and override the deployment-specific keys with --set:
+#
+#   helm upgrade --install kube-agents charts/kube-agents -n kubeagents-system \
+#     -f deploy/controller-expert-demo/values.yaml \
+#     --set platformAgent.harness.clusterName=<cluster> ...
+#
+# Everything that makes the deployment request-driven is either here or in the
+# demo image and operator build these values name:
+#   - the demo annotation (operator: cron_mode ask, event watcher off, demo mounts);
+#   - the demo Platform Agent image (empty cron rosters, one MCP tool);
+#   - the uninstall hook off (its Role deletes PlatformAgents; a disposable demo
+#     cluster is deleted instead of uninstalled).
+# deploy/controller-expert-demo/check_rendered.py proves those properties on the
+# rendered output; render.sh produces it.
+
+operator:
+  image:
+    repository: us-central1-docker.pkg.dev/yiyu-gke-dev/kube-agents/k8s-operator
+    tag: "expert-demo-0.16.0-IMAGE_TAG_PENDING"
+  extraEnv:
+    # The operator derives the broker image from the agent image's repository;
+    # the demo agent image lives in Artifact Registry, so name the released
+    # upstream broker explicitly, by digest.
+    - name: CREDENTIAL_PROXY_IMAGE
+      value: "ghcr.io/gke-labs/kube-agents/credential-proxy:0.16.0@sha256:b64ce56c4707e7ec3eb8e275c5904ff438e7654d53e2a5ba8c4d39de356369c8"
+
+agentSandbox:
+  image:
+    repository: ghcr.io/gke-labs/kube-agents/agent-sandbox
+    tag: "0.16.0@sha256:5409c1a8b058898daae0be582e5ba262bb00e404b4fbb56ff4ba4dfa88a96f70"
+
+platformAgent:
+  annotations:
+    kubeagents.x-k8s.io/controller-expert-demo: "true"
+  harness:
+    clusterName: kube-agents-expert-demo
+    location: us-central1-a
+    projectId: yiyu-gke-dev
+    hermes:
+      dashboardEnabled: false
+    memory:
+      enabled: false
+  deployment:
+    image:
+      repository: us-central1-docker.pkg.dev/yiyu-gke-dev/kube-agents/platform-agent
+      tag: "expert-demo-0.16.0-IMAGE_TAG_PENDING"
+      pullPolicy: Always
+    availability:
+      replicas: 1
+      # Upstream default. Needs a GKE Sandbox (gVisor) node pool; set "" only on
+      # a cluster without one, and say so in the demo record.
+      runtimeClassName: "gvisor"
+  cleanupHook:
+    enabled: false
+
+litellm:
+  # The orchestrator for the Planning Agent and the demo specialist's turns. It
+  # never judges and never produces the expert decision: the demo tool calls the
+  # private expert directly. Gemini is the 0.16.0 default; to orchestrate with a
+  # private OpenAI-compatible server instead, set modelProvider:
+  # openai_compatible, modelDefaultName, and openaiCompatible.apiBase (see README).
+  modelProvider: gemini

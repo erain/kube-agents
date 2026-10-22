@@ -1,0 +1,43 @@
+# Builds the two images the controller-expert demo deploys, from one commit:
+#   platform-agent  thin overlay on the released 0.16.0 Platform Agent image
+#   k8s-operator    this fork's operator (demo annotation hooks), VERSION=0.16.0
+#
+# Submit from a `git archive` of the commit being built, so the image content is
+# exactly that commit (deploy/controller-expert-demo/README.md has the command):
+#   gcloud builds submit STAGE_DIR --config deploy/controller-expert-demo/cloudbuild.yaml \
+#     --substitutions=_TAG=expert-demo-0.16.0-<short-sha>
+steps:
+  - id: platform-agent
+    name: gcr.io/cloud-builders/docker
+    env: ["DOCKER_BUILDKIT=1"]
+    args:
+      - build
+      - --platform=linux/amd64
+      - -f
+      - deploy/controller-expert-demo/Dockerfile
+      - -t
+      - ${_REGISTRY}/platform-agent:${_TAG}
+      - .
+  - id: k8s-operator
+    name: gcr.io/cloud-builders/docker
+    waitFor: ["-"]
+    env: ["DOCKER_BUILDKIT=1"]
+    args:
+      - build
+      - --platform=linux/amd64
+      - --build-arg
+      - VERSION=${_KUBE_AGENTS_VERSION}
+      - -t
+      - ${_REGISTRY}/k8s-operator:${_TAG}
+      - k8s-operator
+images:
+  - ${_REGISTRY}/platform-agent:${_TAG}
+  - ${_REGISTRY}/k8s-operator:${_TAG}
+substitutions:
+  _REGISTRY: us-central1-docker.pkg.dev/yiyu-gke-dev/kube-agents
+  _KUBE_AGENTS_VERSION: "0.16.0"
+  _TAG: ""
+options:
+  machineType: E2_HIGHCPU_8
+  logging: CLOUD_LOGGING_ONLY
+timeout: 3600s

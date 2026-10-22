@@ -1923,7 +1923,8 @@ func renderConfigYAML(agent *agentv1alpha1.PlatformAgent, agentPlugins []*agentv
 	// default is `deny` (hermes_cli/config.py) and the cluster-agent template does
 	// not declare the key. Leaving it out would silently deny every cron-initiated
 	// approval on a scaffolded cluster profile.
-	cfg.Approvals.CronMode = "approve"
+	// The controller-expert demo pins "ask" instead; see controller_expert_demo.go.
+	cfg.Approvals.CronMode = controllerExpertDemoCronApprovalMode(agent, cronModeApprove)
 
 	// Terminal. The ssh backend, always: the agent container has no shell tools
 	// of its own, so a `local` terminal here would run the model's commands in
@@ -3298,6 +3299,9 @@ func buildPodTemplateSpec(agent *agentv1alpha1.PlatformAgent, configHash, fluent
 	if a2aAgentSurface(agent) {
 		mountIntoContainer(containers, "platform-agent", a2aBusTokenVolumeMount())
 	}
+	// The controller-expert demo's config and GitHub credential, into the agent
+	// container alone, and only when the CR opts in. See controller_expert_demo.go.
+	mountControllerExpertDemo(agent, containers)
 	// The bridge, rendered from the finished agent container (every mount
 	// above included, the bus token then dropped) when the CR declares none
 	// of its own, once the bus is provisioned (a2aBridgeInPod). It takes the executor environment every task-executing
@@ -3366,6 +3370,7 @@ func buildPodTemplateSpec(agent *agentv1alpha1.PlatformAgent, configHash, fluent
 		volumes = append(volumes, extraVolumes...)
 	}
 	volumes = append(volumes, shellSandboxVolumes...)
+	volumes = append(volumes, controllerExpertDemoVolumes(agent)...)
 
 	var affinity *corev1.Affinity
 	var nodeSelector map[string]string
@@ -3821,6 +3826,11 @@ func resolveHarnessClusterName(agent *agentv1alpha1.PlatformAgent) string {
 // case where the object is written without its `enabled` key; this covers the case
 // where the object is not written at all, which is every install today.
 func eventWatcherEnabled(agent *agentv1alpha1.PlatformAgent) bool {
+	// The controller-expert demo never starts the watcher: an event-triggered
+	// session is an unrequested trajectory. See controller_expert_demo.go.
+	if controllerExpertDemoEnabled(agent) {
+		return false
+	}
 	if harness := agent.Spec.Harness; harness != nil && harness.EventWatcher != nil && harness.EventWatcher.Enabled != nil {
 		return *harness.EventWatcher.Enabled
 	}

@@ -3893,9 +3893,10 @@ func (r *PlatformAgentReconciler) updateStatusReady(ctx context.Context, agent *
 	// message is the recovery instruction a reader gets from `kubectl describe`.
 	// Leaving it out would freeze the previous release's wording on every
 	// install still holding the stop, since nothing else about them changes.
+	watcherOffReason, watcherOffMessage := eventWatcherDisabledCondition(agent)
 	eventWatcherUnchanged := (eventWatcherOn && existingWatcherCond == nil) ||
 		(!eventWatcherOn && existingWatcherCond != nil && existingWatcherCond.Status == metav1.ConditionFalse &&
-			existingWatcherCond.Reason == eventWatcherDisabledReason && existingWatcherCond.Message == eventWatcherDisabledMessage)
+			existingWatcherCond.Reason == watcherOffReason && existingWatcherCond.Message == watcherOffMessage)
 
 	// A hostPath volume the render left out of the Pod template, reported
 	// while the spec still carries one and absent otherwise. Message is
@@ -4033,8 +4034,8 @@ func (r *PlatformAgentReconciler) updateStatusReady(ctx context.Context, agent *
 		meta.SetStatusCondition(&agent.Status.Conditions, metav1.Condition{
 			Type:               eventWatcherConditionType,
 			Status:             metav1.ConditionFalse,
-			Reason:             eventWatcherDisabledReason,
-			Message:            eventWatcherDisabledMessage,
+			Reason:             watcherOffReason,
+			Message:            watcherOffMessage,
 			ObservedGeneration: agent.Generation,
 			LastTransitionTime: now,
 		})

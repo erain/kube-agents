@@ -196,6 +196,7 @@ PYTHON_TEST_FILES := $(sort \
 	$(wildcard agents/*/defaults/hooks/*/test_*.py) \
 	$(wildcard agentplugins/*/tests/test_*.py) \
 	$(wildcard agentplugins/lib/tests/test_*.py) \
+	$(wildcard deploy/controller-expert-demo/test_*.py) \
 	$(wildcard deploy/docker/test_*.py) \
 	$(wildcard deploy/docker/patches/test_*.py) \
 	$(wildcard deploy/docker/plugins/*/test_*.py) \
