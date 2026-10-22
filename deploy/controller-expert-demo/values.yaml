@@ -46,9 +46,10 @@ platformAgent:
   deployment:
     image:
       repository: us-central1-docker.pkg.dev/yiyu-gke-dev/kube-agents/platform-agent
-      # Overlay on platform-agent:0.16.0@sha256:1194c591..., built from fork commit ff3876e
-      # (adds github_mode "export"; Cloud Build c2779d47). The operator stays at ad5c6f7.
-      tag: "expert-demo-0.16.0-ff3876e@sha256:99c186053559bd41819358cd48d17d5ff5d7ad74b8c0ed9623412982162790fc"
+      # Overlay on platform-agent:0.16.0@sha256:1194c591..., built from fork commit 7a9a7df
+      # (export mode + path-anchored surgical YAML patch; Cloud Build baacd108). The operator
+      # stays at ad5c6f7.
+      tag: "expert-demo-0.16.0-7a9a7df@sha256:e25b1d9a7c6b68462d34ef4483d11946ce2534d1c4d9f43e0b1de01cb768723f"
       pullPolicy: Always
     availability:
       replicas: 1
